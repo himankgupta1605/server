@@ -75,8 +75,14 @@ function normalizeRow(row) {
     }
   }
 
+  // ✅ Default course handling
+  if (!normalized.course || normalized.course.trim() === "") {
+    normalized.course = "B.Tech";
+  }
+
   return normalized;
 }
+
 
 function findStudentByRollNumber(rollnumber) {
   const excelFiles = [
@@ -109,6 +115,23 @@ function findStudentByRollNumber(rollnumber) {
 // -------------------- ROUTES --------------------
 
 // 🔎 Check roll number
+const branchMap = {
+  "Advanced Mechatronics and Industrial Automation": "AMIA",
+  "Computer Science": "CS",
+  "Computer Science and Engineering": "CSE",
+  "Computer Science and Engineering (Artificial Intelligence & Machine Learning)": "CSE(AIML)",
+  "Computer Science and Engineering (Artificial Intelligence)": "CSE(AI)",
+  "Computer Science and Engineering (Cyber Security)": "CSE(CS)",
+  "Computer Science and Engineering (Data Science)": "CSE(DS)",
+  "Computer Science and Information Technology": "CSIT",
+  "Electrical and Computer Engineering": "ECE",
+  "Electrical and Electronics Engineering": "EEE",
+  "Electronics & Communication Engineering": "ECE",
+  "Electronics and Comm. Engg. (VLSI Design and Tech)": "ECE(VLSI)",
+  "Information Technology": "IT",
+  "Mechanical Engineering": "ME"
+};
+
 app.post("/check-roll", async (req, res) => {
   try {
     const { rollnumber } = req.body;
@@ -116,7 +139,7 @@ app.post("/check-roll", async (req, res) => {
       return res.status(400).json({ success: false, error: "Roll number is required" });
     }
 
-    const studentData = findStudentByRollNumber(rollnumber);
+    let studentData = findStudentByRollNumber(rollnumber);
 
     if (!studentData) {
       return res
@@ -124,11 +147,17 @@ app.post("/check-roll", async (req, res) => {
         .json({ success: false, error: "Student not found in Excel sheets" });
     }
 
+    // 🔑 Map branch to short form if it exists in mapping
+    if (studentData.branch && branchMap[studentData.branch]) {
+      studentData.branch = branchMap[studentData.branch];
+    }
+
     res.json({ success: true, data: studentData });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
 
 
 app.post("/participants", async (req, res) => {
@@ -240,9 +269,10 @@ app.post("/teams", async (req, res) => {
     const { leader, members, team_name } = req.body;
 
     if (!leader?.uid || !team_name) {
-      return res
-        .status(400)
-        .json({ success: false, error: "Leader UID and team_name are required" });
+      return res.status(400).json({
+        success: false,
+        error: "Leader UID and team_name are required",
+      });
     }
 
     // Collect all UIDs
@@ -270,29 +300,26 @@ app.post("/teams", async (req, res) => {
       });
     }
 
-    // Build team data with explicit roles
-    const teamData = {
+    // ✅ Create a new Team doc using Team.js schema
+    const team = new Team({
       team_name,
       leader: { ...leader, role: "leader" },
       members: members?.map((m) => ({ ...m, role: "member" })) || [],
-    };
+    });
 
-    // Save team
-    const team = new Team(teamData);
     const saved = await team.save();
 
-
+    // ✅ Update participants with team_id and role_in_team
     const bulkUpdates = allUids.map((uid) => {
-  const role = uid === leader.uid ? "leader" : "member";
-  return {
-    updateOne: {
-      filter: { firebase_uid: uid },
-      update: { $set: { team_id: saved.team_id, role_in_team: role } },
-    },
-  };
-});
-await Participant.bulkWrite(bulkUpdates);
-
+      const role = uid === leader.uid ? "leader" : "member";
+      return {
+        updateOne: {
+          filter: { firebase_uid: uid },
+          update: { $set: { team_id: saved.team_id, role_in_team: role } },
+        },
+      };
+    });
+    await Participant.bulkWrite(bulkUpdates);
 
     // 📧 Notify via email
     const recipients = foundParticipants.map((p) => p.email).filter(Boolean);
@@ -325,6 +352,7 @@ await Participant.bulkWrite(bulkUpdates);
     res.status(400).json({ success: false, error: err.message });
   }
 });
+
 
 
 app.get("/teams", async (req, res) => {
