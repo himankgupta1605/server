@@ -3,7 +3,7 @@ const mongoose = require("mongoose");
 const bodyParser = require("body-parser");
 const cors = require("cors");
 const xlsx = require("xlsx");
-const nodemailer = require("nodemailer");
+const { google } = require("googleapis"); 
 require("dotenv").config();
 
 const Participant = require("./models/Participant");
@@ -15,28 +15,39 @@ app.use(cors());
 
 // -------------------- DB CONNECTION --------------------
 mongoose
-  .connect("mongodb://127.0.0.1:27017/hackathon_db")
+  .connect("mongodb://admin:admin@64.227.131.109:27017/admin")
   .then(() => console.log("✅ MongoDB connected"))
   .catch((err) => console.error("❌ MongoDB error:", err));
 
 // -------------------- SMTP CONFIG --------------------
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || "smtp.gmail.com",
-  port: process.env.SMTP_PORT || 465,
-  secure: true, // true only if port = 465
-  auth: {
-    user: process.env.SMTP_USER || "innotech@kiet.edu",
-    pass: process.env.SMTP_PASS || ""
-  },
-  tls: {
-    ciphers: "SSLv3"
-  }
-});
+const oAuth2Client = new google.auth.OAuth2(
+  process.env.GMAIL_CLIENT_ID,
+  process.env.GMAIL_CLIENT_SECRET,
+  "https://developers.google.com/oauthplayground"  // redirect URI used when you generated the refresh token
+);
+oAuth2Client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN });
 
-transporter.verify((err) => {
-  if (err) console.error("❌ SMTP Error:", err.message);
-  else console.log("📧 SMTP server ready");
-});
+async function sendMail({ to, subject, html }) {
+  const gmail = google.gmail({ version: "v1", auth: oAuth2Client });
+
+  const raw = Buffer.from(
+    "From: Innotech Hackathon <" + process.env.GMAIL_USER + ">\r\n" +
+    "To: " + to + "\r\n" +
+    "Subject: " + subject + "\r\n" +
+    "Content-Type: text/html; charset=utf-8\r\n\r\n" +
+    html
+  )
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+
+  await gmail.users.messages.send({
+    userId: "me",
+    requestBody: { raw },
+  });
+  console.log("📧 Gmail API mail sent to:", to);
+}
 
 // -------------------- HELPERS --------------------
 function normalizeRow(row) {
@@ -73,7 +84,8 @@ function findStudentByRollNumber(rollnumber) {
     "./data/bt2.xlsx",
     "./data/bt3-4,bp3-4.xlsx",
     "./data/mba2.xlsx",
-    "./data/mca2.xlsx"
+    "./data/mca2.xlsx",
+    "./data/bt1.xlsx"
   ];
 
   for (const file of excelFiles) {
@@ -130,32 +142,98 @@ app.post("/participants", async (req, res) => {
 });
 
 
-app.get("/participants", async (req, res) => {
+app.get("/uid", async (req, res) => {
   try {
-    const { uid } = req.query;
+    const { uid} = req.query;
 
-    let participants;
+    // if empty string was passed, just return nothing
+    if (uid === "") {
+      return res.status(400).json({
+        success: false,
+        error: "UID or Roll Number cannot be empty"
+      });
+    }
+
+    let participant;
+
     if (uid) {
-      // find a single participant by firebase_uid
-      participants = await Participant.findOne({ firebase_uid: uid });
-      if (!participants) {
+      participant = await Participant.findOne({ firebase_uid: uid });
+      if (!participant) {
         return res.status(404).json({
           success: false,
           error: `No participant found with UID: ${uid}`
         });
       }
-    } else {
-      // return all participants
-      participants = await Participant.find();
     }
+    res.json({ success: true, data: participant });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
-    res.json({ success: true, data: participants });
+app.get("/stats", async (req, res) => {
+  try {
+    // Count total teams
+    const totalTeams = await Team.countDocuments();
+
+    // Count total participants
+    const totalParticipants = await Participant.countDocuments();
+
+    res.json({
+      success: true,
+      totalTeams,
+      totalParticipants
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
 
+app.get("/rollno", async (req, res) => {
+  try {
+    const {rollno } = req.query;
+
+    // if empty string was passed, just return nothing
+    if (rollno === "") {
+      return res.status(400).json({
+        success: false,
+        error: "UID or Roll Number cannot be empty"
+      });
+    }
+
+    let participant;
+
+    if (rollno) {
+      participant = await Participant.findOne({ rollnumber: rollno });
+      if (!participant) {
+        return res.status(404).json({
+          success: false,
+          error: `No participant found with Roll Number: ${rollno}`
+        });
+      }
+    }
+
+    res.json({ success: true, data: participant });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get("/participants", async (req, res) => {
+  try {
+  
+    let participant;
+
+  
+      participant = await Participant.find();
+
+
+    res.json({ success: true, data: participant });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
 
 app.post("/teams", async (req, res) => {
   try {
@@ -172,56 +250,73 @@ app.post("/teams", async (req, res) => {
 
     // Check if all participants exist
     const foundParticipants = await Participant.find({ firebase_uid: { $in: allUids } });
-
     if (foundParticipants.length !== allUids.length) {
       const foundUids = foundParticipants.map((p) => p.firebase_uid);
       const missing = allUids.filter((uid) => !foundUids.includes(uid));
       return res.status(400).json({
         success: false,
-        error: `These UIDs are not registered as participants: ${missing.join(", ")}`
+        error: `These UIDs are not registered as participants: ${missing.join(", ")}`,
       });
     }
 
+    // Check if already assigned
     const alreadyAssigned = foundParticipants.filter((p) => p.team_id !== null);
     if (alreadyAssigned.length > 0) {
       return res.status(400).json({
         success: false,
         error: `Already assigned: ${alreadyAssigned
           .map((p) => `${p.name || p.firebase_uid} (Team ${p.team_id})`)
-          .join(", ")}`
+          .join(", ")}`,
       });
     }
 
-    // Create team
-    const team = new Team(req.body);
+    // Build team data with explicit roles
+    const teamData = {
+      team_name,
+      leader: { ...leader, role: "leader" },
+      members: members?.map((m) => ({ ...m, role: "member" })) || [],
+    };
+
+    // Save team
+    const team = new Team(teamData);
     const saved = await team.save();
 
-    // Assign team_id to participants
-    await Participant.updateMany(
-      { firebase_uid: { $in: allUids } },
-      { $set: { team_id: saved.team_id } }
-    );
 
-    // 📧 Send email to all team members
+    const bulkUpdates = allUids.map((uid) => {
+  const role = uid === leader.uid ? "leader" : "member";
+  return {
+    updateOne: {
+      filter: { firebase_uid: uid },
+      update: { $set: { team_id: saved.team_id, role_in_team: role } },
+    },
+  };
+});
+await Participant.bulkWrite(bulkUpdates);
+
+
+    // 📧 Notify via email
     const recipients = foundParticipants.map((p) => p.email).filter(Boolean);
     if (recipients.length > 0) {
-      const mailOptions = {
-        from: `"Innotech Hackathon" <${process.env.SMTP_USER}>`,
-        to: recipients.join(","), // send to all members
-        subject: "✅ Team Registration Successful",
-        html: `
-          <h2>🎉 Team Registration Successful</h2>
-          <p>Your team <b>${saved.team_name}</b> has been registered successfully.</p>
-          <p><b>Team ID:</b> ${saved.team_id}</p>
-          <p>Good luck in the hackathon 🚀</p>
-        `
-      };
-
       try {
-        await transporter.sendMail(mailOptions);
-        console.log("📧 Mail sent to:", recipients);
+        await sendMail({
+          to: recipients.join(","),
+          subject: "Team Registration Successful",
+          html: `
+            <h2>🎉 Team Registration Successful</h2>
+            <p>Your team <b>${saved.team_name}</b> has been registered successfully.</p>
+            <p><b>Team ID:</b> ${saved.team_id}</p>
+            <h3>Team Members:</h3>
+            <ul>
+              <li><b>Leader:</b> ${leader.name} (${leader.rollnumber})</li>
+              ${members
+                .map((m) => `<li><b>Member:</b> ${m.name} (${m.rollnumber})</li>`)
+                .join("")}
+            </ul>
+            <p>Good luck in the hackathon 🚀</p>
+          `,
+        });
       } catch (mailErr) {
-        console.error("❌ Mail error:", mailErr.message);
+        console.error("❌ Gmail API mail error:", mailErr.message);
       }
     }
 
@@ -230,6 +325,7 @@ app.post("/teams", async (req, res) => {
     res.status(400).json({ success: false, error: err.message });
   }
 });
+
 
 app.get("/teams", async (req, res) => {
   try {
