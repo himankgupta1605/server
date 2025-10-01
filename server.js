@@ -54,7 +54,7 @@ function normalizeRow(row) {
   const columnMappings = {
     rollnumber: ["Roll Number","Number","University Roll Number", "UNI ROLL NO"],
     name: ["Display Name", "NAME", "Full Name"],
-    email: ["KIET EMAIL", "Institute Email ID", "Email"],
+    email: ["KIET EMAIL", "Institute Email ID", "Email","KIET-EMAIL-ID"],
     phone: ["Mobile Number", "MOB", "Phone"],
     branch: ["Branch", "DEPT", "Degree", "Department"],
     course: ["COURSE", "Program"],
@@ -92,7 +92,8 @@ function findStudentByRollNumber(rollnumber) {
     "./data/mba2.xlsx",
     "./data/mca2.xlsx",
     "./data/bt1.xlsx",
-    "./data/mba1.xlsx"
+    "./data/mba1.xlsx",
+    "./data/mca1.xlsx"
   ];
 
   for (const file of excelFiles) {
