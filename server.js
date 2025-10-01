@@ -58,7 +58,7 @@ function normalizeRow(row) {
     phone: ["Mobile Number", "MOB", "Phone"],
     branch: ["Branch", "DEPT", "Degree", "Department"],
     course: ["COURSE", "Program"],
-    year: ["Current Year", "YEAR", "Year of Study"]
+    year: ["Current Year", "YEAR", "Year of Study", "Current", "Year"]
   };
 
   const normalized = {};
@@ -91,7 +91,8 @@ function findStudentByRollNumber(rollnumber) {
     "./data/bt3-4,bp3-4.xlsx",
     "./data/mba2.xlsx",
     "./data/mca2.xlsx",
-    "./data/bt1.xlsx"
+    "./data/bt1.xlsx",
+    "./data/mba1,mca1.xlsx"
   ];
 
   for (const file of excelFiles) {
@@ -162,13 +163,32 @@ app.post("/check-roll", async (req, res) => {
 
 app.post("/participants", async (req, res) => {
   try {
+    const { firebase_uid } = req.body;
+
+    if (!firebase_uid) {
+      return res.status(400).json({ success: false, error: "firebase_uid is required" });
+    }
+
+    // 🔎 Check if participant already exists
+    const existing = await Participant.findOne({ firebase_uid });
+    if (existing) {
+      return res.status(200).json({
+        success: true,
+        message: "Participant already exists",
+        data: existing
+      });
+    }
+
+    // 🚀 Create new participant
     const participant = new Participant(req.body);
     const saved = await participant.save();
+
     res.status(201).json({ success: true, data: saved });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
   }
 });
+
 
 
 app.get("/uid", async (req, res) => {
@@ -300,13 +320,25 @@ app.post("/teams", async (req, res) => {
       });
     }
 
-    // ✅ Create a new Team doc using Team.js schema
-    const team = new Team({
-      team_name,
-      leader: { ...leader, role: "leader" },
-      members: members?.map((m) => ({ ...m, role: "member" })) || [],
-    });
+   const team = new Team({
+  team_name,
+  leader: { ...leader, role: "leader" },
+  members: members?.map((m) => ({ ...m, role: "member" })) || [],
 
+  // Extra details from req.body
+  category_id: req.body.category_id,
+  category_name: req.body.category_name,
+  problem_statement: req.body.problem_statement,
+  department: req.body.department,
+  picture: req.body.buffer,
+  // Default values
+  qualified_for_institute: false,
+  departmental_scores: [],
+  departmental_final_score: 0,
+  college_scores: [],
+  college_final_score: 0,
+  status: "active",
+});
     const saved = await team.save();
 
     // ✅ Update participants with team_id and role_in_team

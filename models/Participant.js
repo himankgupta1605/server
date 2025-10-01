@@ -10,6 +10,7 @@ const participantSchema = new mongoose.Schema({
   year: Number,
   rollnumber: String,
   is_kiet: Boolean,
+  course: String,
   picture: { type: Buffer },
   status: { type: String, default: "registered" },
   team_id: { type: Number, default: null },
