@@ -52,7 +52,7 @@ async function sendMail({ to, subject, html }) {
 // -------------------- HELPERS --------------------
 function normalizeRow(row) {
   const columnMappings = {
-    rollnumber: ["Roll Number", "University Roll Number", "UNI ROLL NO"],
+    rollnumber: ["Roll Number","Number","University Roll Number", "UNI ROLL NO"],
     name: ["Display Name", "NAME", "Full Name"],
     email: ["KIET EMAIL", "Institute Email ID", "Email"],
     phone: ["Mobile Number", "MOB", "Phone"],
@@ -92,7 +92,7 @@ function findStudentByRollNumber(rollnumber) {
     "./data/mba2.xlsx",
     "./data/mca2.xlsx",
     "./data/bt1.xlsx",
-    "./data/mba1,mca1.xlsx"
+    "./data/mba1.xlsx"
   ];
 
   for (const file of excelFiles) {
